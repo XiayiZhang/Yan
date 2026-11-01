@@ -4,7 +4,7 @@ module Parser
 
 import AST
 import Lexer (Line(..), lexProgram)
-import Data.Text (Text, pack)
+import Data.Text (pack)
 import Data.List (break, isPrefixOf, findIndex)
 
 parseProgram :: String -> Either String Program
@@ -63,15 +63,25 @@ parseBindingOrFunc line =
 
 parseFunctionDef :: String -> Either String Stmt
 parseFunctionDef line = do
-  let ws = words line
-      (beforeMethod, afterMethod) = splitByKeyword "之法" ws
-      name = pack (unwords beforeMethod)
-      afterSansPrefix = drop 1 afterMethod
-      (paramsPart, retPart) = splitByKeyword "受" afterSansPrefix
-      (_, returnPart) = splitByKeyword "归" retPart
-      params = parseParamList paramsPart
-      retType = parseTypeName (unwords returnPart)
-  pure (FuncStmt (FuncDef name params retType []))
+  case words line of
+    "令" : declaration -> do
+      (nameWords, afterMethod) <- splitRequired "之法" declaration
+      if null nameWords
+        then Left "函数定义缺少函数名"
+        else case afterMethod of
+          "受" : parameterAndReturn -> do
+            (parameterWords, afterReturn) <- splitRequired "归" parameterAndReturn
+            (returnTypeWords, trailing) <- splitRequired "者" afterReturn
+            if null returnTypeWords
+              then Left "函数定义缺少返回类型"
+              else if not (null trailing)
+                then Left "函数定义结束符“者”后存在多余内容"
+                else do
+                  params <- parseParamList parameterWords
+                  let returnType = parseTypeName (unwords returnTypeWords)
+                  pure (FuncStmt (FuncDef (pack (unwords nameWords)) params returnType []))
+          _ -> Left "函数定义缺少“受”"
+    _ -> Left "函数定义必须以“令”开头"
 
 parseIfStmt :: String -> Either String Stmt
 parseIfStmt line = do
@@ -85,11 +95,19 @@ splitByKeyword kw lst =
     (left, []) -> (left, [])
     (left, _ : right) -> (left, right)
 
-parseParamList :: [String] -> [(Name, TypeName)]
-parseParamList [] = []
-parseParamList xs =
-  let (names, types) = unzip (map (\s -> (pack s, parseTypeName s)) xs)
-  in zip names types
+splitRequired :: String -> [String] -> Either String ([String], [String])
+splitRequired keyword tokens =
+  case break (== keyword) tokens of
+    (_, []) -> Left ("函数定义缺少“" ++ keyword ++ "”")
+    (before, _ : after) -> Right (before, after)
+
+parseParamList :: [String] -> Either String [(Name, TypeName)]
+parseParamList = traverse parseParam
+  where
+    parseParam token
+      | token `elem` ["令", "之法", "受", "归", "者", "也"] =
+          Left ("函数参数中出现保留字“" ++ token ++ "”")
+      | otherwise = Right (pack token, parseTypeName token)
 
 parseTypeName :: String -> TypeName
 parseTypeName s
