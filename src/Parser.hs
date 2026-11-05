@@ -125,12 +125,10 @@ parseExprWordsList :: [String] -> Either String Expr
 parseExprWordsList [] = Left "空表达式"
 parseExprWordsList ["真"] = Right (BoolLit True)
 parseExprWordsList ["假"] = Right (BoolLit False)
-parseExprWordsList ["零"] = Right (IntLit 0)
-parseExprWordsList ["一"] = Right (IntLit 1)
-parseExprWordsList ["二"] = Right (IntLit 2)
-parseExprWordsList [x] = case reads x :: [(Integer, String)] of
-  [(n, "")] -> Right (IntLit n)
-  _ -> Right (Var (pack x))
+parseExprWordsList [x] =
+  case parseInteger x of
+    Just n -> Right (IntLit n)
+    Nothing -> Right (Var (pack x))
 parseExprWordsList (x:op:y:rest)
   | op == "加" = BinaryOp Add <$> pure (parseVarOrLit x) <*> pure (parseVarOrLit y)
   | op == "减" = BinaryOp Sub <$> pure (parseVarOrLit x) <*> pure (parseVarOrLit y)
@@ -149,9 +147,94 @@ parseExprWordsList (x:xs) =
 
 parseVarOrLit :: String -> Expr
 parseVarOrLit s =
-  case reads s :: [(Integer, String)] of
-    [(n, "")] -> IntLit n
-    _ -> case s of
-      "真" -> BoolLit True
-      "假" -> BoolLit False
-      _ -> Var (pack s)
+  case s of
+    "真" -> BoolLit True
+    "假" -> BoolLit False
+    _ -> case parseInteger s of
+      Just n -> IntLit n
+      Nothing -> Var (pack s)
+
+parseInteger :: String -> Maybe Integer
+parseInteger input =
+  case reads input :: [(Integer, String)] of
+    [(n, "")] -> Just n
+    _ -> parseChineseNumber input
+
+parseChineseNumber :: String -> Maybe Integer
+parseChineseNumber input
+  | null input = Nothing
+  | otherwise = parseSections input Nothing 0
+  where
+    parseSections [] _ total = Just total
+    parseSections remaining previousUnit total =
+      let (section, rest) = break isLargeUnit remaining
+       in case rest of
+            [] -> do
+              sectionValue <- parseSmallNumber section
+              pure (total + sectionValue)
+            unitChar : afterUnit -> do
+              unit <- largeUnitValue unitChar
+              if maybe False (unit >=) previousUnit
+                then Nothing
+                else do
+                  sectionValue <- parseSmallNumber section
+                  if sectionValue == 0
+                    then Nothing
+                    else parseSections afterUnit (Just unit) (total + sectionValue * unit)
+
+isLargeUnit :: Char -> Bool
+isLargeUnit c = c == '万' || c == '亿'
+
+largeUnitValue :: Char -> Maybe Integer
+largeUnitValue '万' = Just 10000
+largeUnitValue '亿' = Just 100000000
+largeUnitValue _ = Nothing
+
+parseSmallNumber :: String -> Maybe Integer
+parseSmallNumber [] = Nothing
+parseSmallNumber digits
+  | all isChineseDigit digits =
+      readDigits <$> traverse chineseDigitValue digits
+  | otherwise = do
+      (total, pending, _) <- foldl parseSmallChar (Just (0, Nothing, 10000)) digits
+      pure (total + maybe 0 id pending)
+  where
+    readDigits = foldl (\value digit -> value * 10 + toInteger digit) 0
+
+    parseSmallChar Nothing _ = Nothing
+    parseSmallChar (Just (total, pending, previousUnit)) c
+      | isChineseDigit c = do
+          digit <- chineseDigitValue c
+          case pending of
+            Just _ -> Nothing
+            Nothing
+              | digit == 0 -> Just (total, Nothing, previousUnit)
+              | otherwise -> Just (total, Just (toInteger digit), previousUnit)
+      | otherwise = do
+          unit <- smallUnitValue c
+          if unit >= previousUnit
+            then Nothing
+            else do
+              coefficient <- case pending of
+                Just value -> Just value
+                Nothing
+                  | unit == 10 && total == 0 -> Just 1
+                  | otherwise -> Nothing
+              Just (total + coefficient * unit, Nothing, unit)
+
+isChineseDigit :: Char -> Bool
+isChineseDigit c = c `elem` "零〇一二两三四五六七八九"
+
+chineseDigitValue :: Char -> Maybe Int
+chineseDigitValue c =
+  lookup c
+    [ ('零', 0), ('〇', 0), ('一', 1), ('二', 2), ('两', 2)
+    , ('三', 3), ('四', 4), ('五', 5), ('六', 6)
+    , ('七', 7), ('八', 8), ('九', 9)
+    ]
+
+smallUnitValue :: Char -> Maybe Integer
+smallUnitValue '十' = Just 10
+smallUnitValue '百' = Just 100
+smallUnitValue '千' = Just 1000
+smallUnitValue _ = Nothing

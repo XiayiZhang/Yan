@@ -14,7 +14,7 @@ maintainer:          zhangxiayi_1027@outlook.com
 -- copyright:
 -- category:
 build-type:          Simple
-extra-source-files:  CHANGELOG.md
+extra-source-files:  CHANGELOG.md, examples/factorial.yn
 
 executable Yan
   main-is:             Main.hs
