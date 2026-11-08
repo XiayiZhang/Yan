@@ -30,12 +30,12 @@ parseStmt :: String -> Either String Stmt
 parseStmt line
   | "令 " `isPrefixOf` line = parseBindingOrFunc line
   | "若 " `isPrefixOf` line = parseIfStmt line
+  | "曰 " `isPrefixOf` line =
+      PrintStmt <$> parseExprWords (drop 2 line)
+  | "置 " `isPrefixOf` line = parseArraySet line
   | "归 " `isPrefixOf` line =
-      let exprText = unwords (drop 1 (words line))
-       in ReturnStmt <$> parseExprWords exprText
-  | otherwise =
-      let exprText = unwords (words line)
-       in ExprStmt <$> parseExprWords exprText
+      ReturnStmt <$> parseExprWords (drop 2 line)
+  | otherwise = ExprStmt <$> parseExprWords line
 
 parseBindingOrFunc :: String -> Either String Stmt
 parseBindingOrFunc line =
@@ -54,7 +54,7 @@ parseBindingOrFunc line =
                   rhsText = unwords rhs
                in if null rhsText
                     then Left "缺少定义体"
-                    else if any (`elem` rhs) ["整", "数", "布尔", "真", "假"]
+                    else if any (`elem` rhs) ["整", "数", "布尔", "字", "数组", "真", "假"]
                            then Right (TypeStmt (pack lhsText) (parseTypeName rhsText))
                            else do
                                   expr <- parseExprWords rhsText
@@ -89,6 +89,13 @@ parseIfStmt line = do
   cond <- parseExprWords rest
   pure (IfStmt cond [] [])
 
+parseArraySet :: String -> Either String Stmt
+parseArraySet line =
+  case words line of
+    ["置", name, index, "为", value] ->
+      Right (SetArrayStmt (pack name) (parseVarOrLit index) (parseVarOrLit value))
+    _ -> Left "数组赋值语法应为：置 数组名 下标 为 值"
+
 splitByKeyword :: String -> [String] -> ([String], [String])
 splitByKeyword kw lst =
   case break (== kw) lst of
@@ -114,17 +121,26 @@ parseTypeName s
   | s == "整" || s == "数" = TypeInt
   | s == "布尔" = TypeBool
   | s == "真" || s == "假" = TypeBool
-  | otherwise = TypeAlias (pack s)
+  | s == "字" = TypeString
+  | otherwise = case words s of
+      ["数组", elementType] -> TypeArray (parseTypeName elementType)
+      _ -> TypeAlias (pack s)
 
 parseExprWords :: String -> Either String Expr
 parseExprWords input =
-  let ws = words input
-   in parseExprWordsList ws
+  case input of
+    "字" -> Right (StringLit (pack ""))
+    '字' : ' ' : content -> Right (StringLit (pack content))
+    _ -> parseExprWordsList (words input)
 
 parseExprWordsList :: [String] -> Either String Expr
 parseExprWordsList [] = Left "空表达式"
 parseExprWordsList ["真"] = Right (BoolLit True)
 parseExprWordsList ["假"] = Right (BoolLit False)
+parseExprWordsList ("列" : elements) =
+  ArrayLit <$> traverse parseArrayElement elements
+parseExprWordsList ["取", arrayName, index] =
+  Right (ArrayGet (Var (pack arrayName)) (parseVarOrLit index))
 parseExprWordsList [x] =
   case parseInteger x of
     Just n -> Right (IntLit n)
@@ -153,6 +169,15 @@ parseVarOrLit s =
     _ -> case parseInteger s of
       Just n -> IntLit n
       Nothing -> Var (pack s)
+
+parseArrayElement :: String -> Either String Expr
+parseArrayElement token
+  | token == "真" = Right (BoolLit True)
+  | token == "假" = Right (BoolLit False)
+  | otherwise =
+      case parseInteger token of
+        Just value -> Right (IntLit value)
+        Nothing -> Right (Var (pack token))
 
 parseInteger :: String -> Maybe Integer
 parseInteger input =

@@ -50,7 +50,8 @@ runProgram debugAst source =
       if debugAst
         then printAst program
         else pure ()
-      case evalProgram program of
+      result <- evalProgram program
+      case result of
         Left err -> do
           print err
           exitFailure

@@ -21,6 +21,8 @@ data Stmt
   | TypeStmt Name TypeName
   | FuncStmt FuncDef
   | ReturnStmt Expr
+  | PrintStmt Expr
+  | SetArrayStmt Name Expr Expr
   | IfStmt Expr [Stmt] [Stmt]
   | ExprStmt Expr
   | Block [Stmt]
@@ -37,6 +39,9 @@ data FuncDef = FuncDef
 data Expr
   = IntLit Integer
   | BoolLit Bool
+  | StringLit Text
+  | ArrayLit [Expr]
+  | ArrayGet Expr Expr
   | Var Name
   | Call Name [Expr]
   | UnaryOp UnaryOp Expr
@@ -64,5 +69,7 @@ data TypeName
   = TypeAlias Name
   | TypeInt
   | TypeBool
+  | TypeString
+  | TypeArray TypeName
   | TypeFunc TypeName TypeName
   deriving (Eq, Show)
